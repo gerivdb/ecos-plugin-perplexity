@@ -1,0 +1,60 @@
+[
+  {
+    "score": 90,
+    "grade": "A",
+    "metrics": {
+      "total_files": 73,
+      "total_dirs": 6,
+      "max_files_per_dir": 36,
+      "overloaded_dirs": 0,
+      "max_depth": 3,
+      "test_coverage": 0.0,
+      "test_failures": 0,
+      "has_readme": false,
+      "has_docs": true,
+      "doc_coverage": 0.0,
+      "total_dependencies": 0,
+      "vulnerabilities": 0,
+      "obsolete_deps": 0,
+      "avg_complexity": 0.0,
+      "duplications": 0,
+      "config_issues": 0
+    },
+    "issues": [
+      "README.md manquant"
+    ],
+    "recommendations": [
+      "Cr\u00e9er un README.md"
+    ],
+    "timestamp": "2025-11-23T14:35:55.092886"
+  },
+  {
+    "score": 90,
+    "grade": "A",
+    "metrics": {
+      "total_files": 74,
+      "total_dirs": 6,
+      "max_files_per_dir": 36,
+      "overloaded_dirs": 0,
+      "max_depth": 3,
+      "test_coverage": 0.0,
+      "test_failures": 0,
+      "has_readme": false,
+      "has_docs": true,
+      "doc_coverage": 0.0,
+      "total_dependencies": 0,
+      "vulnerabilities": 0,
+      "obsolete_deps": 0,
+      "avg_complexity": 0.0,
+      "duplications": 0,
+      "config_issues": 0
+    },
+    "issues": [
+      "README.md manquant"
+    ],
+    "recommendations": [
+      "Cr\u00e9er un README.md"
+    ],
+    "timestamp": "2025-11-23T14:36:54.386976"
+  }
+]

@@ -1,0 +1,22 @@
+﻿# Fichiers temporaires
+*.tmp
+*.temp
+*.log
+*.swp
+*~
+
+# Dependances
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
