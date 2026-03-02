@@ -1,0 +1,18 @@
+# Perplexity SuperMemory Plugin Configuration Example
+
+mcp:
+  server_url: "https://perplexity.ai/api/mcp"
+  api_key: "your-mcp-api-key"
+
+notion:
+  api_key: "your-notion-api-key"
+  database_id: "your-database-id"
+
+# Optional settings
+cache:
+  enabled: true
+  ttl: 86400  # 24 hours
+
+conflict_detection:
+  similarity_threshold: 0.85
+  check_interval: 300  # 5 minutes
