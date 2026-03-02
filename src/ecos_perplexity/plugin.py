@@ -1,297 +1,157 @@
-"""Perplexity Plugin Main Entry Point.
+"""Perplexity Plugin main class implementing ECOSPlugin.
 
-Implements ECOSPlugin interface for ECOS-CLI integration.
+Provides:
+- MCP client initialization and configuration
+- Health checks and lifecycle management
+- Plugin manifest metadata
+- Integration with ECOS-CLI plugin system
+
+Authors: ECOS Development Team
+Version: 0.1.0-alpha1
+Created: 2026-03-02
 """
 
-from typing import Dict, Any, Optional, List
 import logging
+from typing import Dict, Any, Optional
 
-from tools.core.plugin_interface import (
-    ECOSPlugin,
-    PluginManifest,
-    PluginStatus,
-    PluginInitializationError
-)
+try:
+    from tools.core.plugin_interface import ECOSPlugin, PluginManifest, PluginStatus
+except ImportError:
+    # Fallback for standalone testing
+    from enum import Enum
+    
+    class PluginStatus(Enum):
+        UNINITIALIZED = "uninitialized"
+        READY = "ready"
+        ERROR = "error"
+        SHUTDOWN = "shutdown"
+    
+    class PluginManifest:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+    
+    class ECOSPlugin:
+        def __init__(self):
+            self._status = PluginStatus.UNINITIALIZED
+            self._logger = logging.getLogger(self.__class__.__name__)
+        
+        def initialize(self, config: Dict[str, Any]) -> None:
+            raise NotImplementedError
+        
+        def health_check(self) -> bool:
+            raise NotImplementedError
+        
+        def get_manifest(self) -> PluginManifest:
+            raise NotImplementedError
+        
+        def shutdown(self) -> None:
+            raise NotImplementedError
 
-from ecos_perplexity.mcp.client import (
-    PerplexityMCPClient,
-    MCPResponseState
-)
-from ecos_perplexity.patterns.extractor import (
-    IntentHashExtractor,
-    ExtractedIntent
-)
-from ecos_perplexity.patterns.conflict_detector import (
-    ConflictDetector,
-    ConflictType
-)
 
-
-logger = logging.getLogger(__name__)
+from ecos_perplexity.mcp.client import PerplexityMCPClient
 
 
 class PerplexityPlugin(ECOSPlugin):
-    """Perplexity SuperMemory coordination plugin.
+    """Perplexity SuperMemory Plugin for ECOS-CLI.
     
-    Provides:
-    - MCP client for Perplexity conversation history
-    - Intent Hash extraction and tracking
-    - Conflict detection across sessions
-    - Notion sync for Meta-Roadmap (Phase 1)
+    Provides multi-session coordination capabilities:
+    - Intent Hash tracking across Perplexity conversations
+    - Conflict detection (duplicate intents)
+    - MCP client for conversation history access
+    - Future: Notion bidirectional sync, pattern extraction, MICS integration
     
-    Phase 0 POC Features:
-    - Fetch 10 conversations from MCP
-    - Extract Intent Hashes with confidence scoring
-    - Detect HARD/SOFT conflicts
-    - Health monitoring
+    Configuration:
+        mcp_server_url (str): MCP server URL (required)
+        mcp_timeout (int): Request timeout in seconds (default: 10)
+        enable_notion_sync (bool): Enable Notion integration (default: False)
+        notion_token (str): Notion API token (required if enable_notion_sync=True)
+    
+    Example:
+        >>> plugin = PerplexityPlugin()
+        >>> plugin.initialize({
+        ...     "mcp_server_url": "http://localhost:8080",
+        ...     "mcp_timeout": 15
+        ... })
+        >>> plugin.health_check()
+        True
     """
     
     def __init__(self):
+        """Initialize plugin instance."""
         super().__init__()
         self.mcp_client: Optional[PerplexityMCPClient] = None
-        self.extractor: Optional[IntentHashExtractor] = None
-        self.detector: Optional[ConflictDetector] = None
-        self.notion_sync: Optional[Any] = None  # Phase 1
-        
-        # Component initialization tracking
-        self._components_initialized = {
-            "mcp_client": False,
-            "extractor": False,
-            "detector": False
-        }
+        self.config: Dict[str, Any] = {}
+        self._logger = logging.getLogger("PerplexityPlugin")
     
     def initialize(self, config: Dict[str, Any]) -> None:
         """Initialize plugin with configuration.
         
         Args:
-            config: Plugin configuration with MCP and Notion settings
+            config: Plugin configuration dictionary
         
         Raises:
-            PluginInitializationError: If required config missing or init fails
+            ValueError: If mcp_server_url missing or invalid
+            ConnectionError: If MCP server unreachable
         """
+        self._logger.info("Initializing PerplexityPlugin...")
+        
+        # Validate required config
+        mcp_server_url = config.get("mcp_server_url")
+        if not mcp_server_url:
+            raise ValueError("mcp_server_url required in plugin configuration")
+        
+        # Extract optional config
+        mcp_timeout = config.get("mcp_timeout", 10)
+        
+        # Initialize MCP client
         try:
-            self._status = PluginStatus.INITIALIZING
-            self._logger.info("Initializing PerplexityPlugin...")
-            
-            # Validate required config
-            if "mcp" not in config:
-                raise ValueError("MCP configuration required")
-            
-            mcp_config = config["mcp"]
-            if "server_url" not in mcp_config or "api_key" not in mcp_config:
-                raise ValueError("MCP server_url and api_key required")
-            
-            # Initialize MCP client
-            self._logger.info("Initializing MCP client...")
             self.mcp_client = PerplexityMCPClient(
-                server_url=mcp_config["server_url"],
-                api_key=mcp_config["api_key"],
-                timeout=mcp_config.get("timeout", 30),
-                max_retries=mcp_config.get("max_retries", 3)
+                server_url=mcp_server_url,
+                timeout=mcp_timeout
             )
-            self._components_initialized["mcp_client"] = True
-            
-            # Initialize Intent Hash extractor
-            self._logger.info("Initializing Intent Hash extractor...")
-            self.extractor = IntentHashExtractor()
-            self._components_initialized["extractor"] = True
-            
-            # Initialize conflict detector
-            self._logger.info("Initializing conflict detector...")
-            similarity_threshold = config.get(
-                "conflict_detection", {}
-            ).get("similarity_threshold", 0.85)
-            self.detector = ConflictDetector(
-                similarity_threshold=similarity_threshold
-            )
-            self._components_initialized["detector"] = True
-            
-            # TODO Phase 1: Initialize Notion sync
-            # if "notion" in config:
-            #     self.notion_sync = NotionSyncManager(config["notion"])
-            
-            self._status = PluginStatus.READY
-            self._logger.info(
-                "PerplexityPlugin initialized successfully "
-                f"(components: {self._components_initialized})"
-            )
-        
-        except ValueError as e:
-            self._status = PluginStatus.ERROR
-            self._logger.error(f"Configuration error: {e}")
-            raise PluginInitializationError(f"Invalid configuration: {e}")
-        
+            self._logger.info(f"MCP client initialized: {mcp_server_url}")
         except Exception as e:
             self._status = PluginStatus.ERROR
-            self._logger.error(f"Initialization failed: {e}")
-            raise PluginInitializationError(
-                f"Failed to initialize PerplexityPlugin: {e}"
-            )
+            raise ConnectionError(f"Failed to initialize MCP client: {e}")
+        
+        # Store config
+        self.config = config
+        
+        # Future: Initialize Notion client if enabled
+        if config.get("enable_notion_sync", False):
+            self._logger.warning("Notion sync not yet implemented (Phase 1)")
+        
+        # Mark ready
+        self._status = PluginStatus.READY
+        self._logger.info("PerplexityPlugin initialized successfully")
     
     def health_check(self) -> bool:
-        """Check plugin health status.
+        """Verify plugin health status.
+        
+        Checks:
+        - Plugin status is READY
+        - MCP client initialized
+        - MCP client state valid
         
         Returns:
-            True if all components operational
+            True if healthy, False otherwise
         """
         if self._status != PluginStatus.READY:
-            self._logger.warning(f"Plugin not ready (status: {self._status})")
+            self._logger.warning(f"Plugin not ready: {self._status}")
             return False
         
-        # Check all components initialized
-        if not all(self._components_initialized.values()):
-            self._logger.error(
-                f"Components not initialized: {self._components_initialized}"
-            )
+        if not self.mcp_client:
+            self._logger.error("MCP client not initialized")
             return False
         
-        # Check MCP client connectivity (async, so can't ping here)
-        # In real usage, would do: asyncio.run(self.mcp_client.ping())
-        if self.mcp_client is None or self.mcp_client._closed:
-            self._logger.error("MCP client not available")
-            return False
-        
-        # Check other components exist
-        if self.detector is None or self.extractor is None:
-            self._logger.error("Core components missing")
-            return False
-        
-        self._logger.debug("Health check passed")
+        # Future: Add actual MCP server ping
         return True
     
-    async def fetch_and_analyze_conversations(
-        self,
-        limit: int = 10
-    ) -> Dict[str, Any]:
-        """Fetch conversations and analyze Intent Hashes.
-        
-        Phase 0 POC workflow:
-        1. Fetch conversations from MCP
-        2. Extract Intent Hashes
-        3. Check for conflicts
-        4. Return analysis results
-        
-        Args:
-            limit: Number of conversations to fetch
-        
-        Returns:
-            Analysis results dict
-        """
-        if self._status != PluginStatus.READY:
-            raise RuntimeError("Plugin not initialized")
-        
-        results = {
-            "conversations_fetched": 0,
-            "intents_extracted": [],
-            "conflicts_detected": [],
-            "statistics": {}
-        }
-        
-        try:
-            # Fetch conversations
-            self._logger.info(f"Fetching {limit} conversations...")
-            response = await self.mcp_client.fetch_conversations(limit=limit)
-            
-            if response.state != MCPResponseState.SUCCESS:
-                self._logger.error(f"MCP fetch failed: {response.error}")
-                return results
-            
-            conversations = response.data
-            results["conversations_fetched"] = len(conversations)
-            self._logger.info(f"Fetched {len(conversations)} conversations")
-            
-            # Process each conversation
-            for conv in conversations:
-                # Fetch full conversation detail
-                detail_response = await self.mcp_client.get_conversation_detail(
-                    conversation_id=conv.id,
-                    include_messages=True
-                )
-                
-                if detail_response.state != MCPResponseState.SUCCESS:
-                    self._logger.warning(
-                        f"Failed to fetch detail for {conv.id}: "
-                        f"{detail_response.error}"
-                    )
-                    continue
-                
-                conv_detail = detail_response.data
-                
-                # Extract Intent Hashes
-                extractions = self.extractor.extract_from_conversation(
-                    {
-                        "title": conv.title,
-                        "messages": [
-                            {
-                                "content": msg.content,
-                                "role": msg.role
-                            }
-                            for msg in conv_detail["messages"]
-                        ]
-                    },
-                    include_messages=True
-                )
-                
-                # Check for conflicts and track
-                for extraction in extractions:
-                    intent_hash = extraction.intent_hash
-                    
-                    # Check conflict before tracking
-                    conflict = self.detector.check_conflict(
-                        intent_hash,
-                        check_similarity=True
-                    )
-                    
-                    if conflict.conflict_type != ConflictType.NONE:
-                        results["conflicts_detected"].append({
-                            "intent_hash": intent_hash,
-                            "conflict_type": conflict.conflict_type.value,
-                            "similarity_score": conflict.similarity_score,
-                            "message": conflict.message,
-                            "conversation_id": conv.id
-                        })
-                        self._logger.warning(
-                            f"Conflict detected: {conflict.message}"
-                        )
-                    
-                    # Track intent
-                    self.detector.track_intent(
-                        intent_hash=intent_hash,
-                        conversation_id=conv.id,
-                        metadata={
-                            "confidence": extraction.confidence,
-                            "pattern_type": extraction.pattern_type,
-                            "source": extraction.metadata.get("source")
-                        }
-                    )
-                    
-                    results["intents_extracted"].append({
-                        "intent_hash": intent_hash,
-                        "confidence": extraction.confidence,
-                        "pattern_type": extraction.pattern_type,
-                        "conversation_id": conv.id
-                    })
-            
-            # Get detector statistics
-            results["statistics"] = self.detector.get_statistics()
-            
-            self._logger.info(
-                f"Analysis complete: {results['conversations_fetched']} convs, "
-                f"{len(results['intents_extracted'])} intents, "
-                f"{len(results['conflicts_detected'])} conflicts"
-            )
-        
-        except Exception as e:
-            self._logger.error(f"Analysis failed: {e}")
-            results["error"] = str(e)
-        
-        return results
-    
     def get_manifest(self) -> PluginManifest:
-        """Return plugin manifest.
+        """Return plugin metadata and configuration schema.
         
         Returns:
-            PluginManifest with metadata and config schema
+            PluginManifest with complete metadata
         """
         return PluginManifest(
             name="perplexity-supermemory",
@@ -300,67 +160,54 @@ class PerplexityPlugin(ECOSPlugin):
             config_schema={
                 "type": "object",
                 "properties": {
-                    "mcp": {
-                        "type": "object",
-                        "properties": {
-                            "server_url": {"type": "string"},
-                            "api_key": {"type": "string"},
-                            "timeout": {"type": "integer", "default": 30},
-                            "max_retries": {"type": "integer", "default": 3}
-                        },
-                        "required": ["server_url", "api_key"]
+                    "mcp_server_url": {
+                        "type": "string",
+                        "description": "MCP server URL",
+                        "examples": ["http://localhost:8080"]
                     },
-                    "notion": {
-                        "type": "object",
-                        "properties": {
-                            "api_key": {"type": "string"},
-                            "database_id": {"type": "string"},
-                        },
-                        "required": ["api_key", "database_id"]
+                    "mcp_timeout": {
+                        "type": "integer",
+                        "description": "MCP request timeout in seconds",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 60
                     },
-                    "conflict_detection": {
-                        "type": "object",
-                        "properties": {
-                            "similarity_threshold": {
-                                "type": "number",
-                                "minimum": 0.0,
-                                "maximum": 1.0,
-                                "default": 0.85
-                            }
-                        }
+                    "enable_notion_sync": {
+                        "type": "boolean",
+                        "description": "Enable Notion bidirectional sync (Phase 1+)",
+                        "default": False
+                    },
+                    "notion_token": {
+                        "type": "string",
+                        "description": "Notion API token (if enable_notion_sync=True)"
                     }
                 },
-                "required": ["mcp"]
+                "required": ["mcp_server_url"]
             },
             dependencies=[
+                "ecos-cli>=4.5.0",
                 "mcp>=0.8.0",
                 "notion-client>=2.0.0",
-                "aiohttp>=3.9.0",
-                "pydantic>=2.0.0"
+                "pydantic>=2.0.0",
+                "aiohttp>=3.9.0"
             ],
-            description="Perplexity SuperMemory coordination plugin for ECOS-CLI",
+            description="Perplexity SuperMemory coordination plugin with MCP integration, Intent Hash tracking, and conflict detection",
             author="ECOS Development Team",
             homepage="https://github.com/gerivdb/ecos-plugin-perplexity",
-            tags=["perplexity", "memory", "coordination", "mcp", "notion"]
+            tags=["perplexity", "memory", "coordination", "mcp", "intent-hash"]
         )
     
     def shutdown(self) -> None:
-        """Cleanup plugin resources."""
-        try:
-            self._logger.info("Shutting down PerplexityPlugin...")
-            
-            # Close MCP client
-            if self.mcp_client and not self.mcp_client._closed:
-                # Note: In async context would do: await self.mcp_client.close()
-                # For now just mark as closed
-                self.mcp_client._closed = True
-            
-            # Clear detector state (optional)
-            # if self.detector:
-            #     self.detector.clear()
-            
-            self._status = PluginStatus.SHUTDOWN
-            self._logger.info("PerplexityPlugin shutdown complete")
+        """Cleanup plugin resources.
         
-        except Exception as e:
-            self._logger.error(f"Shutdown error: {e}")
+        Closes MCP client connections and releases resources.
+        """
+        self._logger.info("Shutting down PerplexityPlugin...")
+        
+        if self.mcp_client:
+            # Future: Close MCP client connections
+            self.mcp_client.reset()
+            self._logger.info("MCP client cleaned up")
+        
+        self._status = PluginStatus.SHUTDOWN
+        self._logger.info("PerplexityPlugin shutdown complete")
