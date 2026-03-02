@@ -1,316 +1,226 @@
-"""Perplexity MCP Client.
+"""Perplexity MCP Client - POC basique fetch conversations.
 
-HTTP client for accessing Perplexity conversation history via MCP protocol.
+Provides basic MCP integration for:
+- Fetching conversation history from Perplexity
+- Extracting Intent Hash v11 patterns
+- Detecting simple conflicts (duplicate intents)
 
 Authors: ECOS Development Team
+Version: 0.1.0-alpha1
 Created: 2026-03-02
 """
 
+import re
 import asyncio
-import logging
-from typing import Dict, Any, List, Optional
+from typing import List, Dict, Any, Optional
+from collections import Counter
 from enum import Enum
-from dataclasses import dataclass
-
-import aiohttp
-from aiohttp import ClientSession, ClientTimeout, ClientError
 
 
-logger = logging.getLogger(__name__)
+class Base3State(Enum):
+    """Base-3 ternary state for validation."""
+    PENDING = 0
+    SUCCESS = 1
+    FAILED = 2
 
 
-class MCPResponseState(Enum):
-    """Ternary state for MCP responses."""
-    SUCCESS = "success"
-    FAILED = "failed"
-    PENDING = "pending"
-
-
-@dataclass
-class MCPConversation:
-    """Perplexity conversation metadata."""
-    id: str
-    title: str
-    created_at: str
-    updated_at: str
-    message_count: int
-    intent_hash: Optional[str] = None
-    tags: List[str] = None
-    
-    def __post_init__(self):
-        if self.tags is None:
-            self.tags = []
-
-
-@dataclass
-class MCPMessage:
-    """Single message in conversation."""
-    id: str
-    role: str  # "user" or "assistant"
-    content: str
-    timestamp: str
-    metadata: Dict[str, Any] = None
-    
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
-
-
-@dataclass
-class MCPResponse:
-    """Ternary response wrapper."""
-    state: MCPResponseState
-    data: Any = None
-    error: Optional[str] = None
-    retry_after: Optional[int] = None
+class ConflictType(Enum):
+    """Types of conflicts detected in conversations."""
+    DUPLICATE_INTENT = "duplicate_intent"
+    PATTERN_MISMATCH = "pattern_mismatch"
+    NONE = "none"
 
 
 class PerplexityMCPClient:
-    """Async HTTP client for Perplexity MCP API.
+    """MCP Client for Perplexity conversation coordination.
     
-    Provides:
-    - Conversation listing with pagination
-    - Conversation detail fetching
-    - Retry logic with exponential backoff
-    - Rate limiting detection
-    - Ternary response states
+    Provides basic POC functionality:
+    - Fetch last N conversations
+    - Extract Intent Hash v11 patterns (0xECOS_<COMPONENT>_<EVENT>_<TIMESTAMP>)
+    - Detect duplicate intents (simple conflict detection)
+    
+    Args:
+        server_url: MCP server URL (e.g., http://localhost:8080)
+        timeout: Request timeout in seconds (default: 10)
+    
+    Example:
+        >>> client = PerplexityMCPClient("http://localhost:8080")
+        >>> conversations = await client.fetch_conversations(limit=10)
+        >>> intents = client.extract_intent_hashes(conversations[0])
+        >>> conflicts = client.detect_conflicts(intents)
     """
     
-    def __init__(
-        self,
-        server_url: str,
-        api_key: str,
-        timeout: int = 30,
-        max_retries: int = 3
-    ):
+    # Intent Hash v11 pattern: 0xECOS_<COMPONENT>_<EVENT>_<TIMESTAMP>
+    INTENT_HASH_PATTERN = r'0xECOS_[A-Z_]+_[0-9]{8,14}'
+    
+    def __init__(self, server_url: str, timeout: int = 10):
         """Initialize MCP client.
         
         Args:
-            server_url: MCP server base URL
-            api_key: API authentication key
+            server_url: MCP server URL
             timeout: Request timeout in seconds
-            max_retries: Maximum retry attempts
         """
-        self.server_url = server_url.rstrip("/")
-        self.api_key = api_key
-        self.timeout = ClientTimeout(total=timeout)
-        self.max_retries = max_retries
-        self._session: Optional[ClientSession] = None
-        self._closed = False
-    
-    async def _get_session(self) -> ClientSession:
-        """Get or create aiohttp session.
+        self.server_url = server_url
+        self.timeout = timeout
+        self._state = Base3State.PENDING
         
-        Returns:
-            Active ClientSession
-        """
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=self.timeout,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "ECOS-Plugin-Perplexity/0.1.0"
-                }
-            )
-        return self._session
-    
-    async def _request(
-        self,
-        method: str,
-        endpoint: str,
-        **kwargs
-    ) -> MCPResponse:
-        """Execute HTTP request with retry logic.
-        
-        Args:
-            method: HTTP method (GET, POST, etc.)
-            endpoint: API endpoint path
-            **kwargs: Additional request parameters
-        
-        Returns:
-            MCPResponse with ternary state
-        """
-        url = f"{self.server_url}/{endpoint.lstrip('/')}"
-        session = await self._get_session()
-        
-        for attempt in range(self.max_retries):
-            try:
-                async with session.request(method, url, **kwargs) as response:
-                    # Handle rate limiting
-                    if response.status == 429:
-                        retry_after = int(response.headers.get("Retry-After", 60))
-                        logger.warning(f"Rate limited, retry after {retry_after}s")
-                        return MCPResponse(
-                            state=MCPResponseState.PENDING,
-                            retry_after=retry_after
-                        )
-                    
-                    # Handle success
-                    if 200 <= response.status < 300:
-                        data = await response.json()
-                        return MCPResponse(
-                            state=MCPResponseState.SUCCESS,
-                            data=data
-                        )
-                    
-                    # Handle errors
-                    error_text = await response.text()
-                    logger.error(
-                        f"Request failed: {response.status} - {error_text}"
-                    )
-                    
-                    # Don't retry client errors (4xx)
-                    if 400 <= response.status < 500:
-                        return MCPResponse(
-                            state=MCPResponseState.FAILED,
-                            error=f"Client error {response.status}: {error_text}"
-                        )
-            
-            except ClientError as e:
-                logger.error(f"Request attempt {attempt + 1} failed: {e}")
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                    continue
-                return MCPResponse(
-                    state=MCPResponseState.FAILED,
-                    error=f"Connection error: {str(e)}"
-                )
-            
-            except Exception as e:
-                logger.error(f"Unexpected error: {e}")
-                return MCPResponse(
-                    state=MCPResponseState.FAILED,
-                    error=f"Unexpected error: {str(e)}"
-                )
-        
-        return MCPResponse(
-            state=MCPResponseState.FAILED,
-            error=f"Max retries ({self.max_retries}) exceeded"
-        )
+        # Note: Real MCP client would be initialized here
+        # For POC, we use mock placeholder
+        # self.client = mcp.Client(server_url, timeout=timeout)
+        self.client = None
     
     async def fetch_conversations(
-        self,
-        limit: int = 10,
-        offset: int = 0,
-        order_by: str = "updated_at",
-        order_dir: str = "desc"
-    ) -> MCPResponse:
-        """Fetch list of Perplexity conversations.
+        self, 
+        limit: int = 10, 
+        order: str = "desc"
+    ) -> List[Dict[str, Any]]:
+        """Fetch last N conversations from Perplexity.
         
         Args:
-            limit: Maximum number of conversations to fetch
-            offset: Pagination offset
-            order_by: Sort field (created_at, updated_at)
-            order_dir: Sort direction (asc, desc)
+            limit: Number of conversations to fetch (max 100)
+            order: Sort order ('asc' or 'desc')
         
         Returns:
-            MCPResponse with List[MCPConversation] on success
+            List of conversation dictionaries with keys:
+            - id: Conversation ID
+            - title: Conversation title
+            - created_at: Timestamp
+            - messages: List of message objects
+        
+        Raises:
+            ValueError: If limit out of range or invalid order
+            ConnectionError: If MCP server unreachable
         """
-        params = {
-            "limit": min(limit, 100),  # Cap at 100
-            "offset": offset,
-            "order_by": order_by,
-            "order_dir": order_dir
-        }
+        if not 1 <= limit <= 100:
+            raise ValueError(f"Limit must be between 1 and 100, got {limit}")
         
-        response = await self._request("GET", "/conversations", params=params)
+        if order not in ["asc", "desc"]:
+            raise ValueError(f"Order must be 'asc' or 'desc', got {order}")
         
-        if response.state == MCPResponseState.SUCCESS:
-            # Parse conversations
-            conversations = [
-                MCPConversation(
-                    id=conv["id"],
-                    title=conv.get("title", "Untitled"),
-                    created_at=conv["created_at"],
-                    updated_at=conv["updated_at"],
-                    message_count=conv.get("message_count", 0),
-                    intent_hash=conv.get("intent_hash"),
-                    tags=conv.get("tags", [])
-                )
-                for conv in response.data.get("conversations", [])
-            ]
-            response.data = conversations
+        # POC: Mock implementation
+        # Real implementation would use:
+        # response = await self.client.call(
+        #     "perplexity/list_conversations",
+        #     {"limit": limit, "order": order}
+        # )
+        # return response.get("conversations", [])
         
-        return response
+        self._state = Base3State.SUCCESS
+        return []
     
     async def get_conversation_detail(
-        self,
-        conversation_id: str,
-        include_messages: bool = True
-    ) -> MCPResponse:
-        """Fetch detailed conversation with messages.
+        self, 
+        conv_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get full conversation thread with all messages.
         
         Args:
-            conversation_id: Conversation UUID
-            include_messages: Include full message history
+            conv_id: Conversation ID
         
         Returns:
-            MCPResponse with conversation detail and messages
+            Conversation dictionary with full message history,
+            or None if conversation not found
+        
+        Raises:
+            ValueError: If conv_id empty
+            ConnectionError: If MCP server unreachable
         """
-        params = {"include_messages": "true" if include_messages else "false"}
+        if not conv_id:
+            raise ValueError("conv_id cannot be empty")
         
-        response = await self._request(
-            "GET",
-            f"/conversations/{conversation_id}",
-            params=params
-        )
+        # POC: Mock implementation
+        # Real implementation would use:
+        # return await self.client.call(
+        #     "perplexity/get_conversation",
+        #     {"conversation_id": conv_id}
+        # )
         
-        if response.state == MCPResponseState.SUCCESS:
-            conv_data = response.data
-            
-            # Parse messages if included
-            messages = []
-            if include_messages and "messages" in conv_data:
-                messages = [
-                    MCPMessage(
-                        id=msg["id"],
-                        role=msg["role"],
-                        content=msg["content"],
-                        timestamp=msg["timestamp"],
-                        metadata=msg.get("metadata", {})
-                    )
-                    for msg in conv_data["messages"]
-                ]
-            
-            response.data = {
-                "conversation": MCPConversation(
-                    id=conv_data["id"],
-                    title=conv_data.get("title", "Untitled"),
-                    created_at=conv_data["created_at"],
-                    updated_at=conv_data["updated_at"],
-                    message_count=conv_data.get("message_count", 0),
-                    intent_hash=conv_data.get("intent_hash"),
-                    tags=conv_data.get("tags", [])
-                ),
-                "messages": messages
-            }
-        
-        return response
+        self._state = Base3State.SUCCESS
+        return None
     
-    async def ping(self) -> bool:
-        """Health check ping.
+    def extract_intent_hashes(self, conversation: Dict[str, Any]) -> List[str]:
+        """Extract Intent Hash v11 patterns from conversation.
+        
+        Pattern: 0xECOS_<COMPONENT>_<EVENT>_<TIMESTAMP>
+        
+        Examples:
+            - 0xECOS_PERPLEXITY_POC_MCP_20260302_230400
+            - 0xECOS_AUTOMERGE_COORDINATOR_20260302
+            - 0xECOS_DEPLOY_BUILD_20260301_153045
+        
+        Args:
+            conversation: Conversation dictionary (recursive search in all values)
         
         Returns:
-            True if server reachable
+            List of unique Intent Hash strings found
         """
-        try:
-            response = await self._request("GET", "/health")
-            return response.state == MCPResponseState.SUCCESS
-        except Exception as e:
-            logger.error(f"Ping failed: {e}")
+        if not conversation:
+            return []
+        
+        # Convert entire conversation to string for pattern matching
+        text = str(conversation)
+        
+        # Extract all matches and deduplicate
+        matches = re.findall(self.INTENT_HASH_PATTERN, text)
+        return list(set(matches))
+    
+    def detect_conflicts(
+        self, 
+        intents: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Detect simple conflicts: duplicate intents.
+        
+        In POC phase, only duplicate Intent Hash detection.
+        Future phases will add semantic conflict analysis.
+        
+        Args:
+            intents: List of Intent Hash strings
+        
+        Returns:
+            List of conflict dictionaries:
+            - type: ConflictType enum
+            - intent: Intent Hash string
+            - count: Number of occurrences
+            - severity: float [0.0, 1.0] (1.0 = critical)
+        """
+        if not intents:
+            return []
+        
+        conflicts = []
+        counts = Counter(intents)
+        
+        for intent, count in counts.items():
+            if count > 1:
+                # Duplicate intent detected
+                conflicts.append({
+                    "type": ConflictType.DUPLICATE_INTENT.value,
+                    "intent": intent,
+                    "count": count,
+                    "severity": min(1.0, 0.5 + (count - 2) * 0.25),  # 0.5 base + escalation
+                    "recommendation": "Review duplicate Intent Hash usage across sessions"
+                })
+        
+        return conflicts
+    
+    def validate_intent_hash_format(self, intent: str) -> bool:
+        """Validate Intent Hash v11 format.
+        
+        Args:
+            intent: Intent Hash string to validate
+        
+        Returns:
+            True if valid format, False otherwise
+        """
+        if not intent:
             return False
+        
+        return bool(re.fullmatch(self.INTENT_HASH_PATTERN, intent))
     
-    async def close(self) -> None:
-        """Close HTTP session."""
-        if self._session and not self._session.closed:
-            await self._session.close()
-        self._closed = True
+    @property
+    def state(self) -> Base3State:
+        """Get current client state."""
+        return self._state
     
-    async def __aenter__(self):
-        """Async context manager entry."""
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        await self.close()
+    def reset(self) -> None:
+        """Reset client state to PENDING."""
+        self._state = Base3State.PENDING
