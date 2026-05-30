@@ -1,62 +1,106 @@
+---
+relay_version: 5
+repo: gerivdb/ecos-plugin-perplexity
+strate: L3
+lifecycle: ACTIVE
+vague: 5
+synchro: '2026-05-30'
+hub: gerivdb/GOVERNANCE-HUB
+intent_hash: '0x97B0AD8423C4B936'
+phi_cps:
+  value: null
+  source: FIELD_ABSENT
+  valid: false
+rules:
+- id: R1
+  assertion: ECOS-CLI est un executable pur — zero regle LLM.
+  eval_cmd: null
+  status: UNVERIFIED
+  severity: CRITICAL
+- id: R2
+  assertion: Chaque commande ecos * a un test dans DevTools-CLI.
+  eval_cmd: null
+  status: UNVERIFIED
+  severity: HIGH
+- id: R3
+  assertion: BLO utilise bloom.db + WAL — acces direct interdit.
+  eval_cmd: null
+  status: UNVERIFIED
+  severity: HIGH
+---
+
 # STRATUM RELAY — ecos-plugin-perplexity (L3)
 
-**VAGUE**: 4 | **Synchro**: 2026-05-30 | **Hub**: gerivdb/LLM-REPO
+**VAGUE**: 5 | **Synchro**: 2026-05-30 | **Hub**: gerivdb/GOVERNANCE-HUB
+
+---
+
+## Identite stratique
 
 - **Strate** : `L3` — Systeme moteur CLI
-- **Role canonique** : Plugin Perplexity/SuperMemory pour ECOS-CLI — Intent Hash, Notion sync
-- **Parent** : L2 (ECOS-CLI)
+- **Role canonique** : Plugin Perplexity/SuperMemory pour ECOS-CLI Ã”Ã‡Ã¶ Intent Hash, Notion sync
+- **Parent** : L2
+- **Enfants** : L4
+- **phi-CPS** : null (FIELD_ABSENT)
+
+## Navigation rapide
+
+- PRD canonique : `GOVERNANCE-HUB/PRD/PRD_ECOSYSTEM_SUPERSTRUCTURE_L0-L9_V1.md`
+- Substrat cognitif : `gerivdb/LLM-REPO` (L1b — prive)
+- Standards repo : `REPO-STANDARDS` (RSS-v1)
+- Transit map : `VERSUS/urban_ontology_verse/TRANSIT/transit_map.yaml`
+- Cadastre : `VERSUS/urban_ontology_verse/CADASTRE/cadastre_full.yaml`
 
 ## Regles locales
-- R1 — ecos-plugin-perplexity etend ECOS-CLI avec Perplexity et SuperMemory.
-- R2 — Intent Hash et Notion sync sont geres par ce plugin.
-- Anti-pattern: utiliser l'API Perplexity directement sans passer par le plugin.
 
-## Karpathy-Recall local (Vague 3 — 10Q)
-1. Quel est le role d'ecos-plugin-perplexity ?
-2. Pourquoi Intent Hash est-il important dans l'ecosysteme ?
-3. Quelle est la difference entre ce plugin et OPENCLAW-CLI ?
-4. Pourquoi ne pas utiliser l'API Perplexity directement ?
-5. Dans quelle phase UrbanVerse ce STRATUM_RELAY a-t-il ete deploye ?
-6. Comment ecos-plugin-perplexity genere-t-il l'Intent Hash et quel est le format de sortie ?
-7. Quelles commandes SuperMemory le plugin expose-t-il et comment les invoquer ?
-8. Comment le plugin synchronise-t-il les donnes avec Notion (webhooks, polling, push) ?
-9. Comment ecos-plugin-perplexity gere-t-il les taux limites (rate limiting) de l'API Perplexity ?
-10. Quels sont les modes de cache du plugin et comment eviter les requetes API redondantes ?
+- **R1** — ECOS-CLI est un executable pur — zero regle LLM.  [UNVERIFIED]
+- **R2** — Chaque commande ecos * a un test dans DevTools-CLI.  [UNVERIFIED]
+- **R3** — BLO utilise bloom.db + WAL — acces direct interdit.  [UNVERIFIED]
+
+## Karpathy-Recall etendu (Vague 5 — 10Q)
+
+> Reponds mentalement a ces questions avant d'agir dans ce repo.
+
+1. Q: Apres migration v1.1.0, que contient ECOS-CLI et que NE contient-il PLUS ?
+2. Q: Quelle est la frontiere de responsabilite entre ECOS-CLI et DevTools ?
+3. Q: Qu'est-ce que BLO et quel format de base de donnees utilise-t-il ?
+4. Q: OPENCLAW-CLI est decrit comme 'Intent Normalization Gateway' — qu'est-ce que cela veut dire ?
+5. Q: FLUENCE-CLI delegue a ECOS-CLI — quelle est la regle de delegation ?
+6. Q: Quels repos dependent directement de L3 (ECOS-CLI, CLIs) ?
+7. Q: Quel est le role de L3 dans la boot sequence ?
+8. Q: Pourquoi les regles LLM ne doivent pas resider dans ECOS-CLI ?
+9. Q: Quelle commande ecos * est la plus critique a tester ?
+10. Q: Dans quelle phase UrbanVerse le STRATUM_RELAY de ce repo a-t-il ete deploye ?
 
 ## Dependances directes
 
-- **Parent (amont)** : ECOS-CLI (L3) — ecos-plugin-perplexity s'installe en tant que plugin d'extension d'ECOS-CLI.
-- **Enfants (aval)** : Aucun — le plugin est une extension terminale d'ECOS-CLI sans enfants directs.
+**Parents (amont) :**
+- BRAIN
+- FLUENCE
+- VDB
+- DATA-MINER
+- TINA
 
-## Agents locaux (Vague 4)
-
-```yaml
-# .roomodes — profil agent ecos-plugin-perplexity
-agent: perplexity-bridge
-strate: L3
-role: Perplexity/SuperMemory plugin
-rules: ecos-plugin-perplexity/rules/plugin_rules.yaml
-hub_ref: ECOS-CLI
-```
-
-L'agent `perplexity-bridge` etend ECOS-CLI avec les capacites Perplexity et SuperMemory, gere l'Intent Hash, et synchronise Notion.
-
-## Auto-conformite (Vague 4)
-
-- **Guard 1 — Plugin-only access** : L'API Perplexity n'est jamais appelee directement. Tout passe par le plugin.
-- **Guard 2 — Rate limit compliance** : Le plugin respecte strictement les limites de taux de l'API Perplexity.
-- **Guard 3 — Cache before call** : Avant chaque appel API, le cache est consulte. Pas de requete redondante.
+**Enfants (aval) :**
+- ECOS-CLI
+- KIVA-CLI
+- DevTools
+- FLUENCE-CLI
+- DevTools-CLI
+- FORGE
+- OPENCLAW-CLI
+- BRAIN-CLI
+- GOST
+- BatMCP
 
 ## Vague de mise a jour
 
 | Vague | Contenu | Statut |
 |-------|---------|--------|
-| 2 | Identite + regles + Karpathy-Recall 5Q | Deploye |
-| 3 | Recall etendu a 10Q + section Dependances | Deploye |
-| **4 (courante)** | Agents locaux + auto-conformite | Deploye |
+| **5 (courante)** | Frontmatter YAML + regles structurees + phi_cps null honnete | Deploye |
+| 6 (suivante) | Eval cmd sandbox + HMAC + hardware constraints | Planifie |
 
 ---
 
 *Genere par `VERSUS/urban_ontology_verse/TOOLS/relay_propagator.py` v4.0*
-*UrbanVerse v4.0.0 — gerivdb/VERSUS (L8)*
-*IntentHash: 0xPHASE8_PERPLEXITY_V4_20260530*
+*UrbanVerse v1.0.0 — gerivdb/VERSUS (L8)*
