@@ -4,7 +4,7 @@ repo: gerivdb/ecos-plugin-perplexity
 strate: L3
 lifecycle: ACTIVE
 vague: 5
-synchro: '2026-05-30'
+synchro: '2026-05-31'
 hub: gerivdb/GOVERNANCE-HUB
 intent_hash: '0x97B0AD8423C4B936'
 phi_cps:
@@ -31,14 +31,15 @@ rules:
 
 # STRATUM RELAY — ecos-plugin-perplexity (L3)
 
-**VAGUE**: 5 | **Synchro**: 2026-05-30 | **Hub**: gerivdb/GOVERNANCE-HUB
+**VAGUE**: 5 | **Synchro**: 2026-05-31 | **Hub**: gerivdb/GOVERNANCE-HUB
 
 ---
 
 ## Identite stratique
 
 - **Strate** : `L3` — Systeme moteur CLI
-- **Role canonique** : Plugin Perplexity/SuperMemory pour ECOS-CLI Ã”Ã‡Ã¶ Intent Hash, Notion sync
+- **Role canonique** : Plugin Perplexity/SuperMemory pour ECOS-CLI  -  Intent Hash,
+Notion sync
 - **Parent** : L2
 - **Enfants** : L4
 - **phi-CPS** : null (FIELD_ABSENT)
