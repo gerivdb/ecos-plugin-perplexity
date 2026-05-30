@@ -1,6 +1,6 @@
 # STRATUM RELAY — ecos-plugin-perplexity (L3)
 
-**VAGUE**: 3 | **Synchro**: 2026-05-29 | **Hub**: gerivdb/LLM-REPO
+**VAGUE**: 4 | **Synchro**: 2026-05-30 | **Hub**: gerivdb/LLM-REPO
 
 - **Strate** : `L3` — Systeme moteur CLI
 - **Role canonique** : Plugin Perplexity/SuperMemory pour ECOS-CLI — Intent Hash, Notion sync
@@ -28,10 +28,35 @@
 - **Parent (amont)** : ECOS-CLI (L3) — ecos-plugin-perplexity s'installe en tant que plugin d'extension d'ECOS-CLI.
 - **Enfants (aval)** : Aucun — le plugin est une extension terminale d'ECOS-CLI sans enfants directs.
 
+## Agents locaux (Vague 4)
+
+```yaml
+# .roomodes — profil agent ecos-plugin-perplexity
+agent: perplexity-bridge
+strate: L3
+role: Perplexity/SuperMemory plugin
+rules: ecos-plugin-perplexity/rules/plugin_rules.yaml
+hub_ref: ECOS-CLI
+```
+
+L'agent `perplexity-bridge` etend ECOS-CLI avec les capacites Perplexity et SuperMemory, gere l'Intent Hash, et synchronise Notion.
+
+## Auto-conformite (Vague 4)
+
+- **Guard 1 — Plugin-only access** : L'API Perplexity n'est jamais appelee directement. Tout passe par le plugin.
+- **Guard 2 — Rate limit compliance** : Le plugin respecte strictement les limites de taux de l'API Perplexity.
+- **Guard 3 — Cache before call** : Avant chaque appel API, le cache est consulte. Pas de requete redondante.
+
 ## Vague de mise a jour
 
 | Vague | Contenu | Statut |
 |-------|---------|--------|
 | 2 | Identite + regles + Karpathy-Recall 5Q | Deploye |
-| **3 (courante)** | Recall etendu a 10Q + section Dependances | Deploye |
-| 4 (suivante) | Cache multi-niveaux + sync temps reel Notion | Planifie |
+| 3 | Recall etendu a 10Q + section Dependances | Deploye |
+| **4 (courante)** | Agents locaux + auto-conformite | Deploye |
+
+---
+
+*Genere par `VERSUS/urban_ontology_verse/TOOLS/relay_propagator.py` v4.0*
+*UrbanVerse v4.0.0 — gerivdb/VERSUS (L8)*
+*IntentHash: 0xPHASE8_PERPLEXITY_V4_20260530*
